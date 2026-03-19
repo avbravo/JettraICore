@@ -15,6 +15,7 @@
     <modules>
         <module>jettra-3d-java</module>
         <module>jettra-dl</module>
+        <module>JettraWUI</module>
     </modules>
 
     <properties>
