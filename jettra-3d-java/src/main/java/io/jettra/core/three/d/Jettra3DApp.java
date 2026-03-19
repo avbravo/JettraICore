@@ -59,6 +59,12 @@ public class Jettra3DApp {
     private List<KnowledgeEntry> topKnowledge = new java.util.ArrayList<>();
     private float topKnowledgeUpdateTimer = 0;
 
+    // Environmental
+    private float timeScale = 1.0f;
+    private int weatherMode = 0; // 0: Sunny, 1: Night, 2: Storm
+    private boolean sfxEnabled = true;
+    private float howlTimer = 0;
+
     public void run() {
         setConfigFlags(FLAG_WINDOW_RESIZABLE);
         initWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Jettra 3D Core - Java 25 Native");
@@ -66,16 +72,18 @@ public class Jettra3DApp {
         setTargetFPS(60);
 
         initAudioDevice();
+        initSfx();
 
         initCamera();
         initPopulation();
 
         while (!windowShouldClose()) {
             float dt = getFrameTime();
-            worldTime += dt;
+            float scaledDt = dt * timeScale;
+            worldTime += scaledDt;
 
             handleInput();
-            update(dt);
+            update(scaledDt);
             draw();
         }
 
@@ -159,23 +167,98 @@ public class Jettra3DApp {
         if (directorMode) {
             updateDirectorMode(dt);
         }
+
+        updateSfx();
+        
+        if (howlTimer > 0) howlTimer -= dt;
+        checkPackSafety(dt);
+    }
+
+    private void checkPackSafety(float dt) {
+        if (weatherMode == 2 && howlTimer <= 0) {
+            long total = 0;
+            long sheltered = 0;
+            HumanEntity jettra = null;
+            
+            for (HumanEntity e : entities) {
+                if (e.name.contains("Jettra")) { jettra = e; continue; }
+                if (e.isCar || e.isAnimal) continue;
+                total++;
+                if ("SHELTERED".equals(e.action)) sheltered++;
+            }
+            
+            if (total > 0 && sheltered == total && jettra != null) {
+                // Reward agents for successful survival tactics
+                for (HumanEntity re : entities) {
+                    if ("SHELTERED".equals(re.action) && !re.name.contains("Jettra")) {
+                        re.intelligence += 2;
+                        re.currentThought = "He aprendido a sobrevivir (+2 Intel)";
+                        re.thoughtTimer = 4.0f;
+                        final HumanEntity fRe = re;
+                        thoughts.add(new Thought() {{
+                            content = "LEARNED: SURVIVAL (+2 Intel)";
+                            x = fRe.x; y = fRe.y + 3.0f; z = fRe.z;
+                            timer = 4.0f; isThought = false;
+                        }});
+                    }
+                }
+
+                final String msg = "¡AWOOOOOOOOOO! La manada está a salvo de la tormenta.";
+                final HumanEntity fJettra = jettra;
+                jettra.currentThought = msg;
+                jettra.thoughtTimer = 6.0f;
+                thoughts.add(new Thought() {{
+                    content = msg; x = fJettra.x; y = fJettra.y + 4.0f; z = fJettra.z;
+                    timer = 6.0f; isThought = false;
+                }});
+                worldEvents.add(new WorldEvent("Aullido de Jettra: Supervivencia Exitosa", worldTime, 255, 255, 0));
+                howlTimer = 40.0f; // Relax for 40s
+            }
+        }
     }
 
     private void updateEntities(float dt) {
         for (HumanEntity e : entities) {
+            // --- WEATHER & TIME REACTION ---
+            float envSpeed = 1.0f;
+            if (weatherMode == 1) envSpeed = 0.4f; // Night: very slow
+            if (weatherMode == 2) { 
+                envSpeed = 0.7f; // Storm: somewhat slow
+                // Seeking Shelter logic
+                if (worldTime % 2.0 < dt && !artifacts.isEmpty() && !e.isCar && !e.isWolf) {
+                    Artifact nearest = artifacts.get(0);
+                    float minDistSq = Float.MAX_VALUE;
+                    for (Artifact a : artifacts) {
+                        float d = (a.x - e.x)*(a.x - e.x) + (a.z - e.z)*(a.z - e.z);
+                        if (d < minDistSq) { minDistSq = d; nearest = a; }
+                    }
+                    if (minDistSq > 9.0f) { // Only if > 3 units away
+                        e.targetX = nearest.x; e.targetZ = nearest.z;
+                        if (Math.random() < 0.1 && e.thoughtTimer <= 0) {
+                            e.currentThought = "¡Está lloviendo! Al refugio...";
+                            e.thoughtTimer = 3.0f;
+                        }
+                    } else {
+                        e.action = "SHELTERED";
+                    }
+                }
+            }
+
             // Movement logic
             float dx = e.targetX - e.x;
             float dz = e.targetZ - e.z;
             float dist = (float)Math.sqrt(dx*dx + dz*dz);
             
             if (dist > 0.1f) {
-                float speed = e.isCar ? 10.0f : 2.0f;
-                e.x += (dx / dist) * speed * dt;
-                e.z += (dz / dist) * speed * dt;
+                float baseSpeed = e.isCar ? 10.0f : 2.0f;
+                float finalSpeed = baseSpeed * envSpeed;
+                e.x += (dx / dist) * finalSpeed * dt;
+                e.z += (dz / dist) * finalSpeed * dt;
                 e.rotation = (float)Math.atan2(dx, dz) * (180.0f / (float)Math.PI);
             } else {
                 // Reach target, pick new one
-                if (Math.random() < 0.01) {
+                float idleChance = (weatherMode == 1) ? 0.002f : 0.01f; // Night agents stay idle longer
+                if (Math.random() < idleChance) {
                     e.targetX = (float)(Math.random()*80-40);
                     e.targetZ = (float)(Math.random()*80-40);
                     if (!e.isCar && !e.isWolf && Math.random() < 0.3) {
@@ -318,15 +401,31 @@ public class Jettra3DApp {
 
     private void draw() {
         beginDrawing();
-        clearBackground(new Color().r((byte)5).g((byte)5).b((byte)12).a((byte)255));
+        
+        Color skyColor = switch(weatherMode) {
+            case 1 -> new Color().r((byte)2).g((byte)2).b((byte)5).a((byte)255); // Night
+            case 2 -> new Color().r((byte)30).g((byte)35).b((byte)45).a((byte)255); // Storm
+            default -> new Color().r((byte)5).g((byte)5).b((byte)12).a((byte)255); // Default
+        };
+        clearBackground(skyColor);
 
         beginMode3D(camera);
         drawGrid((int)(50 * planeScale), 1.0f);
-        drawPlane(new Vector3().x(0).y(-0.05f).z(0), new Vector2().x(100 * planeScale).y(100 * planeScale), new Color().r((byte)15).g((byte)15).b((byte)30).a((byte)255));
+        drawPlane(new Vector3().x(0).y(-0.05f).z(0), new Vector2().x(100 * planeScale).y(100 * planeScale), 
+                  weatherMode == 2 ? DARKGRAY : new Color().r((byte)15).g((byte)15).b((byte)30).a((byte)255));
 
         drawArtifacts();
         drawEntities();
         drawThoughts();
+
+        if (weatherMode == 2) { // Draw Rain
+            for(int j=0; j<100; j++) {
+                float rx = (float)(Math.random()*80-40);
+                float rz = (float)(Math.random()*80-40);
+                float ry = (float)(Math.random()*20);
+                drawLine3D(new Vector3().x(rx).y(ry).z(rz), new Vector3().x(rx).y(ry-0.5f).z(rz), SKYBLUE);
+            }
+        }
 
         endMode3D();
 
@@ -492,7 +591,12 @@ public class Jettra3DApp {
             worldEvents.add(new WorldEvent("Voz " + (voiceEnabled ? "activada" : "desactivada"), worldTime, 200, 200, 0));
         }
 
-        if (guiButton(sw - 190, 365, 180, 30, "SALIR", DARKGRAY)) {
+        if (guiButton(sw - 190, 365, 85, 30, sfxEnabled ? "SFX: ON" : "SFX: OFF", sfxEnabled ? LIME : RED)) {
+            sfxEnabled = !sfxEnabled;
+            worldEvents.add(new WorldEvent("Efectos " + (sfxEnabled ? "activados" : "desactivados"), worldTime, 100, 255, 100));
+        }
+
+        if (guiButton(sw - 100, 365, 85, 30, "SALIR", DARKGRAY)) {
             closeWindow();
             System.exit(0);
         }
@@ -774,6 +878,40 @@ public class Jettra3DApp {
                 if (msg.toLowerCase().contains("hola")) res = "Saludos, mortal. El conocimiento fluye.";
                 if (msg.toLowerCase().contains("construye")) res = "¡Mis agentes ya están en ello!";
                 if (msg.toLowerCase().contains("quien eres")) res = "Soy el guía de este mundo 3D.";
+
+                // Physical Commands
+                if (msg.toLowerCase().contains("teletransportar")) {
+                    res = "Realizando teletransporte cuántico al centro del mapa.";
+                    for (HumanEntity target : entities) {
+                        if (!target.name.contains("Jettra")) {
+                            target.x = 0; target.z = 0; target.targetX = 0; target.targetZ = 0;
+                        }
+                    }
+                    worldEvents.add(new WorldEvent("Teletransporte masivo activado por Jettra", worldTime, 255, 255, 0));
+                }
+                if (msg.toLowerCase().contains("poblacion")) {
+                    res = "Invocando nuevos agentes al mundo...";
+                    for(int i=0; i<5; i++) {
+                        generateEntity("Sentry-" + (int)(Math.random()*1000), (float)(Math.random()*20-10), 0, (float)(Math.random()*20-10), false, false, false);
+                    }
+                }
+                if (msg.toLowerCase().contains("limpiar")) {
+                    res = "Limpiando todos los proyectos y artefactos obsoletos.";
+                    artifacts.clear();
+                    megaProjects.clear();
+                    worldEvents.add(new WorldEvent("Mundo purificado por el líder", worldTime, 100, 100, 255));
+                }
+                if (msg.toLowerCase().contains("acelerar")) {
+                    timeScale = (timeScale == 1.0f) ? 5.0f : 1.0f;
+                    res = "Escala de tiempo ajustada a " + timeScale + "x.";
+                    worldEvents.add(new WorldEvent("Manipulación temporal: " + res, worldTime, 0, 255, 200));
+                }
+                if (msg.toLowerCase().contains("clima")) {
+                    weatherMode = (weatherMode + 1) % 3;
+                    String[] m = {"Soleado", "Nocturno", "Tormentoso"};
+                    res = "Cambiando entorno a modo " + m[weatherMode] + ".";
+                    worldEvents.add(new WorldEvent("Cambio climático: " + res, worldTime, 200, 0, 255));
+                }
                 
                 final String finalRes = res;
                 chatHistory.add("Jettra: " + finalRes);
@@ -787,6 +925,17 @@ public class Jettra3DApp {
             }
         }
         if (chatHistory.size() > 20) chatHistory.remove(0);
+    }
+
+    private void initSfx() {
+        // Here we could loadSound("rain.wav") or generate procedural waves.
+        // For simplicity and to avoid crashes with missing files or JNA-Wave complex buffers, 
+        // we'll use a simulation with world events that emit a 'play' signal.
+    }
+
+    private void updateSfx() {
+        if (!sfxEnabled) return;
+        // In reality, this would play/stop a loop based on weatherMode.
     }
 
     public static void main(String[] args) {
