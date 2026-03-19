@@ -1,0 +1,45 @@
+[ {
+  "timestamp" : 1773947252498,
+  "agent" : "Jettra Wolf",
+  "source" : "Observación Directa",
+  "topic" : "Evolución de la Especie",
+  "x" : 9.427124,
+  "y" : 0.0,
+  "z" : -29.148663,
+  "confidence" : 0.9966200844599674,
+  "context" : "CREATING",
+  "keywords" : [ "evolución-de-la-especie", "jettra-learning", "observación directa" ]
+}, {
+  "timestamp" : 1773939269303,
+  "agent" : "Agent-12",
+  "source" : "Google",
+  "topic" : "Mecánica Cuántica",
+  "x" : -17.867197,
+  "y" : 0.0,
+  "z" : -26.163952,
+  "confidence" : 0.9947105862967417,
+  "context" : "BUILDING",
+  "keywords" : [ "mecánica-cuántica", "jettra-learning", "google" ]
+}, {
+  "timestamp" : 1773937762049,
+  "agent" : "Agent-11",
+  "source" : "Google",
+  "topic" : "Redes Neuronales",
+  "x" : 0.7754744,
+  "y" : 0.0,
+  "z" : 28.956758,
+  "confidence" : 0.9929917502545393,
+  "context" : "BUILDING",
+  "keywords" : [ "redes-neuronales", "jettra-learning", "google" ]
+}, {
+  "timestamp" : 1773938367227,
+  "agent" : "Wolf-Prime",
+  "source" : "Disco Local",
+  "topic" : "Arquitectura del Sistema Jettra",
+  "x" : 11.577517,
+  "y" : 0.0,
+  "z" : 3.3457553,
+  "confidence" : 0.9909595860659011,
+  "context" : "BUILDING",
+  "keywords" : [ "arquitectura-del-sistema-jettra", "jettra-learning", "disco local" ]
+} ]

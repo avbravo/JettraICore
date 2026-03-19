@@ -39,7 +39,7 @@ public class Jettra3DApp {
     private boolean directorMode = false;
     private float directorTimer = 0;
     private float planeScale = 1.0f;
-    private boolean isAnchored = false;
+    private boolean isAnchored = true;
     private boolean cameraLocked = false;
     private boolean showHelp = true;
     private boolean showConfigModal = false;
@@ -56,14 +56,15 @@ public class Jettra3DApp {
     private boolean showChat = false;
     private String chatInput = "";
     private List<String> chatHistory = new java.util.ArrayList<>();
+    private List<KnowledgeEntry> allKnowledge = new java.util.ArrayList<>();
     private List<KnowledgeEntry> topKnowledge = new java.util.ArrayList<>();
     private float topKnowledgeUpdateTimer = 0;
 
-    // Environmental
+    private float howlTimer = 0;
+    private float globalSaveTimer = 60.0f; // Save state every 60 seconds
     private float timeScale = 1.0f;
     private int weatherMode = 0; // 0: Sunny, 1: Night, 2: Storm
     private boolean sfxEnabled = true;
-    private float howlTimer = 0;
 
     public void run() {
         setConfigFlags(FLAG_WINDOW_RESIZABLE);
@@ -99,8 +100,9 @@ public class Jettra3DApp {
         camera.fovy(45);
         camera.projection(CAMERA_PERSPECTIVE);
     }
-
     private void handleInput() {
+        if (showConfigModal) return;
+
         if (isKeyPressed(KEY_TAB)) showHelp = !showHelp;
         if (isKeyPressed(KEY_C)) {
             initCamera();
@@ -172,6 +174,12 @@ public class Jettra3DApp {
         
         if (howlTimer > 0) howlTimer -= dt;
         checkPackSafety(dt);
+
+        globalSaveTimer -= dt;
+        if (globalSaveTimer <= 0) {
+            saveWorldState();
+            globalSaveTimer = 60.0f;
+        }
     }
 
     private void checkPackSafety(float dt) {
@@ -195,11 +203,11 @@ public class Jettra3DApp {
                         re.currentThought = "He aprendido a sobrevivir (+2 Intel)";
                         re.thoughtTimer = 4.0f;
                         final HumanEntity fRe = re;
-                        thoughts.add(new Thought() {{
-                            content = "LEARNED: SURVIVAL (+2 Intel)";
-                            x = fRe.x; y = fRe.y + 3.0f; z = fRe.z;
-                            timer = 4.0f; isThought = false;
-                        }});
+                        Thought t = new Thought();
+                        t.content = "LEARNED: SURVIVAL (+2 Intel)";
+                        t.owner = fRe; t.x = fRe.x; t.y = fRe.y + 3.0f; t.z = fRe.z;
+                        t.timer = 4.0f; t.isThought = false;
+                        thoughts.add(t);
                     }
                 }
 
@@ -207,10 +215,11 @@ public class Jettra3DApp {
                 final HumanEntity fJettra = jettra;
                 jettra.currentThought = msg;
                 jettra.thoughtTimer = 6.0f;
-                thoughts.add(new Thought() {{
-                    content = msg; x = fJettra.x; y = fJettra.y + 4.0f; z = fJettra.z;
-                    timer = 6.0f; isThought = false;
-                }});
+                Thought t = new Thought();
+                t.content = msg; t.owner = fJettra;
+                t.x = fJettra.x; t.y = fJettra.y + 4.0f; t.z = fJettra.z;
+                t.timer = 6.0f; t.isThought = false;
+                thoughts.add(t);
                 worldEvents.add(new WorldEvent("Aullido de Jettra: Supervivencia Exitosa", worldTime, 255, 255, 0));
                 howlTimer = 40.0f; // Relax for 40s
             }
@@ -218,154 +227,132 @@ public class Jettra3DApp {
     }
 
     private void updateEntities(float dt) {
+        boolean isNight = (weatherMode == 1);
+        
         for (HumanEntity e : entities) {
-            // --- WEATHER & TIME REACTION ---
-            float envSpeed = 1.0f;
-            if (weatherMode == 1) envSpeed = 0.4f; // Night: very slow
-            if (weatherMode == 2) { 
-                envSpeed = 0.7f; // Storm: somewhat slow
-                // Seeking Shelter logic
-                if (worldTime % 2.0 < dt && !artifacts.isEmpty() && !e.isCar && !e.isWolf) {
-                    Artifact nearest = artifacts.get(0);
-                    float minDistSq = Float.MAX_VALUE;
-                    for (Artifact a : artifacts) {
-                        float d = (a.x - e.x)*(a.x - e.x) + (a.z - e.z)*(a.z - e.z);
-                        if (d < minDistSq) { minDistSq = d; nearest = a; }
+            if (e.isDead && !e.name.contains("Jettra")) continue;
+
+            // --- PHYSICAL (PECS) ---
+            if (!e.isCar) {
+                float baseRate = e.metabolismRate * dt;
+                
+                // Aging: 1 year per ~15 mins real time (approx 1/900 year per second)
+                if (worldTime % 1.0 < dt) {
+                    e.age = (int)(20 + (worldTime / 600.0f)); // Simple aging for demo
+                }
+
+                // Metabolism
+                e.hunger -= baseRate * (isNight ? 0.3f : 0.6f);
+                e.thirst -= baseRate * (isNight ? 0.4f : 0.8f);
+                e.energy -= baseRate * (e.action.equals("IDLE") ? 0.2f : 1.0f);
+                
+                // Disease Spread
+                if (e.infectionLevel > 0) {
+                    e.infectionLevel += baseRate * 2.0f;
+                    e.health -= baseRate * 0.5f;
+                    if (e.health < 20 && e.thoughtTimer <= 0) {
+                        e.currentThought = "Me siento muy enfermo...";
+                        e.thoughtTimer = 5.0f;
                     }
-                    if (minDistSq > 9.0f) { // Only if > 3 units away
-                        e.targetX = nearest.x; e.targetZ = nearest.z;
-                        if (Math.random() < 0.1 && e.thoughtTimer <= 0) {
-                            e.currentThought = "¡Está lloviendo! Al refugio...";
-                            e.thoughtTimer = 3.0f;
-                        }
-                    } else {
-                        e.action = "SHELTERED";
-                    }
+                }
+
+                // Personality Impact on Emotional State (Neuroticism)
+                float moodDecay = baseRate * (0.1f + e.neuroticism * 0.5f);
+                e.mood -= moodDecay;
+
+                // Recovery
+                if (e.action.equals("SHELTERED") || e.action.equals("RESTING")) {
+                    e.energy = Math.min(100, e.energy + baseRate * 5.0f);
+                    e.stamina = Math.min(100, e.stamina + baseRate * 3.0f);
+                    if (isNight) e.mood = Math.min(100, e.mood + baseRate);
+                }
+
+                // Health checks
+                if (e.hunger < 10 || e.thirst < 10 || e.energy < 5) {
+                    e.health -= baseRate * 1.5f;
+                }
+                
+                if (e.health <= 0 && !e.name.contains("Jettra")) {
+                    e.isDead = true;
+                    e.action = "DEAD";
+                    worldEvents.add(new WorldEvent(e.name + " ha fallecido por causas naturales", worldTime, 200, 0, 0));
+                    continue;
                 }
             }
 
-            // Movement logic
+            // --- COGNITIVE (PECS) - Goal Selection ---
+            if (!e.isCar && !e.isDead) {
+                if (e.hunger < 40) e.currentGoal = "BUSCAR_COMIDA";
+                else if (e.thirst < 40) e.currentGoal = "BUSCAR_AGUA";
+                else if (e.energy < 30 || isNight) e.currentGoal = "BUSCAR_REFUGIO";
+                else if (e.mood < 40) e.currentGoal = "SOCIALIZAR";
+                else e.currentGoal = "EXPLORAR";
+            }
+
+            // --- MOVEMENT & ENVIRONMENTAL REACTION ---
+            float envSpeed = isNight ? 0.5f : 1.0f;
+            if (weatherMode == 2) envSpeed *= 0.7f;
+
             float dx = e.targetX - e.x;
             float dz = e.targetZ - e.z;
             float dist = (float)Math.sqrt(dx*dx + dz*dz);
-            
+
             if (dist > 0.1f) {
-                float baseSpeed = e.isCar ? 10.0f : 2.0f;
-                float finalSpeed = baseSpeed * envSpeed;
-                e.x += (dx / dist) * finalSpeed * dt;
-                e.z += (dz / dist) * finalSpeed * dt;
+                float speed = (e.isCar ? 8.0f : 2.0f) * envSpeed;
+                e.x += (dx / dist) * speed * dt;
+                e.z += (dz / dist) * speed * dt;
                 e.rotation = (float)Math.atan2(dx, dz) * (180.0f / (float)Math.PI);
             } else {
-                // Reach target, pick new one
-                float idleChance = (weatherMode == 1) ? 0.002f : 0.01f; // Night agents stay idle longer
-                if (Math.random() < idleChance) {
-                    e.targetX = (float)(Math.random()*80-40);
-                    e.targetZ = (float)(Math.random()*80-40);
-                    if (!e.isCar && !e.isWolf && Math.random() < 0.3) {
-                        e.currentThought = "Voy a " + (Math.random() > 0.5 ? "explorar" : "descansar");
-                        e.thoughtTimer = 3.0f;
-                        thoughts.add(new Thought() {{
-                            content = e.currentThought;
-                            x = e.x; y = e.y + 3; z = e.z;
-                            timer = 3.0f;
-                            isThought = true;
-                        }});
+                // Goal-specific target selection
+                if (Math.random() < 0.02) {
+                    if (e.currentGoal.equals("BUSCAR_REFUGIO") || e.currentGoal.equals("BUSCAR_COMIDA")) {
+                        // Find nearest house/school
+                        Artifact best = null; float mDS = Float.MAX_VALUE;
+                        for(Artifact a : artifacts) {
+                            float d = (a.x-e.x)*(a.x-e.x)+(a.z-e.z)*(a.z-e.z);
+                            if (d < mDS) { mDS = d; best = a; }
+                        }
+                        if (best != null) { e.targetX = best.x; e.targetZ = best.z; }
+                    } else {
+                        e.targetX = (float)(Math.random()*100-50);
+                        e.targetZ = (float)(Math.random()*100-50);
                     }
+                }
+                if (dist < 1.0f && e.currentGoal.equals("BUSCAR_REFUGIO")) {
+                    e.action = "SHELTERED";
                 }
             }
 
-            // --- LEADERSHIP & AUTONOMOUS BEHAVIORS ---
-            boolean isJettra = e.name.contains("Jettra");
+            // --- SOCIAL (PECS) & LEADERSHIP ---
+            if (!e.isCar && !e.isDead && worldTime % 4.0 < dt) {
+                for (HumanEntity other : entities) {
+                    if (other == e || other.isDead) continue;
+                    float d2 = (other.x-e.x)*(other.x-e.x) + (other.z-e.z)*(other.z-e.z);
+                    if (d2 < 25.0f) { // Interaction range
+                        // Disease spread
+                        if (e.infectionLevel > 30 && Math.random() < 0.1) other.infectionLevel = 1;
 
-            // 1. Socializing / Leadership Dialogues
-            if (!e.isCar && worldTime % 3.0 < dt) { 
-                for (HumanEntity target : entities) {
-                    if (target == e) continue;
-                    float tx = target.x - e.x;
-                    float tz = target.z - e.z;
-                    float distSqr = tx*tx + tz*tz;
-                    
-                    if (distSqr < 49.0f) { // Leadership range (7 units)
-                        if (isJettra && Math.random() < 0.2) {
-                            String cmd = (Math.random() > 0.5) ? "¡Agentes, a construir!" : "¡Sigamos adelante!";
-                            e.action = "COMMANDING";
-                            thoughts.add(new Thought() {{
-                                content = cmd; x = e.x; y = e.y + 3.0f; z = e.z;
-                                timer = 5.0f; isThought = false;
-                            }});
-                            // Influence nearby agent
-                            if (Math.random() > 0.5) {
-                                target.action = "BUILDING";
-                                target.intelligence += 1;
+                        // Social interaction
+                        if (e.currentGoal.equals("SOCIALIZAR")) {
+                            e.mood = Math.min(100, e.mood + 5.0f * (1.0f + e.extraversion));
+                            if (e.thoughtTimer <= 0 && Math.random() < 0.2) {
+                                e.currentThought = "Hablando con " + other.name;
+                                e.thoughtTimer = 3.0f;
                             }
-                            break;
-                        } else if (distSqr < 16.0f && Math.random() < 0.05) {
-                            e.action = "SOCIALIZING";
-                            String msg = e.isWolf ? "Awoooo!" : "¡Hola " + target.name + "!";
-                            thoughts.add(new Thought() {{
-                                content = msg; x = e.x; y = e.y + 2.5f; z = e.z;
-                                timer = 4.0f; isThought = false;
-                            }});
-                            break;
+                        }
+
+                        // Leadership influence (Jettra Wolf)
+                        if (e.name.contains("Jettra") && Math.random() < 0.1) {
+                            other.intelligence = Math.min(1.0f, other.intelligence + 0.01f);
+                            other.mood = Math.min(100, other.mood + 10.0f);
                         }
                     }
                 }
             }
 
-            // 2. Building / Divine Creation (Jettra only)
-            if (isJettra && Math.random() < 0.0005) {
-                // Leader Jettra creates a finished Artifact instantly!
-                final int finalType = (int)(Math.random()*4);
-                artifacts.add(new Artifact() {{ 
-                    x = e.x + 3; y = 0; z = e.z + 3; 
-                    type = finalType;
-                    r=255; g=215; b=0; a=255; // Gold color for Jettra's creations
-                }});
-                e.action = "CREATING";
-                worldEvents.add(new WorldEvent("Jettra creó un objeto místico en ("+e.x+","+e.z+")", worldTime, 255, 215, 0));
-            }
-
-            // --- LEARNING SYSTEM (Memory & Web) ---
-            if (!e.isCar && worldTime % 5.0 < dt) {
-                double rand = Math.random();
-                if (rand < 0.02) { // Simulate Web Search
-                    String[] sources = {"Google", "ScienceDaily", "Medium Blog", "Digital Library"};
-                    String source = sources[(int)(Math.random()*sources.length)];
-                    String topic = (Math.random() > 0.5) ? "Mecánica Cuántica" : "Redes Neuronales";
-                    e.currentThought = "Buscando " + topic + " en " + source + "...";
-                    e.thoughtTimer = 4.0f;
-                    saveKnowledge(e, source, topic);
-                    worldEvents.add(new WorldEvent(e.name + " aprendió de " + source, worldTime, 100, 200, 255));
-                } else if (rand < 0.04) { // Simulate Local Disk Scan
-                    e.currentThought = "Escaneando archivos locales (PDF/MD)...";
-                    e.thoughtTimer = 4.0f;
-                    worldEvents.add(new WorldEvent(e.name + " analizando disco local", worldTime, 150, 150, 150));
-                    saveKnowledge(e, "Disco Local", "Arquitectura del Sistema Jettra");
-                }
-            }
-
-            // Normal building logic for others
-            if (!e.isCar && !isJettra) {
-                for (MegaProject p : megaProjects) {
-                    float px = p.x - e.x;
-                    float pz = p.z - e.z;
-                    if (px*px + pz*pz < 25.0f) { 
-                        p.progress += (e.action.equals("BUILDING") ? 0.005f : 0.001f) * dt;
-                        e.action = "BUILDING";
-                        if (p.progress >= 1.0f && !p.finished) {
-                            p.finished = true;
-                            worldEvents.add(new WorldEvent("Construcción completada por " + e.name, worldTime, 0, 255, 100));
-                            artifacts.add(new Artifact() {{ x = p.x; y = p.y; z = p.z; type = 0; r=100; g=100; b=150; a=255; }});
-                        }
-                    }
-                }
-                
-                // Spontaneous projects
-                if (entities.size() > 5 && Math.random() < 0.0001) {
-                    megaProjects.add(new MegaProject() {{ 
-                        x = e.x + (float)Math.random()*10 - 5; y = 0; z = e.z + (float)Math.random()*10 - 5; progress = 0.01f; finished = false; 
-                    }});
-                }
+            // --- PERSISTENCE & LEARNING ---
+            if (!e.isCar && !e.isDead && Math.random() < 0.0005) {
+                saveKnowledge(e, "Observación Directa", "Evolución de la Especie");
             }
         }
     }
@@ -417,6 +404,7 @@ public class Jettra3DApp {
         drawArtifacts();
         drawEntities();
         drawThoughts();
+        drawKnowledgeBase();
 
         if (weatherMode == 2) { // Draw Rain
             for(int j=0; j<100; j++) {
@@ -436,6 +424,7 @@ public class Jettra3DApp {
         if (showChat) drawChatWindow();
         
         drawTopKnowledgePanel();
+        drawJettraStatusTooltip();
 
         endDrawing();
     }
@@ -507,29 +496,56 @@ public class Jettra3DApp {
     }
 
     private void drawThoughts() {
+        // Render thoughts from the global list
         for (Thought t : thoughts) {
-            Vector2 screenPos = getWorldToScreen(new Vector3().x(t.x).y(t.y).z(t.z), camera);
-            if (screenPos.x() > 0 && screenPos.x() < getScreenWidth() && screenPos.y() > 0 && screenPos.y() < getScreenHeight()) {
-                String label = t.isThought ? "[Pensando...]" : "[Hablando]";
-                int fontSize = 16;
-                int textW = measureText(t.content, fontSize);
-                
-                float alpha = Math.min(1.0f, t.timer); // Fade out
-                Color bubbleColor = t.isThought ? fade(PURPLE, 0.7f * alpha) : fade(DARKBLUE, 0.8f * alpha);
-                Color textColor = fade(RAYWHITE, alpha);
-                Color labelColor = fade(GOLD, alpha);
+            drawThoughtBubble(t.content, t.owner, t.x, t.y, t.z, t.timer, t.isThought);
+        }
+        
+        // Render current thoughts from entities if not already in list
+        for (HumanEntity e : entities) {
+            if (e.thoughtTimer > 0 && e.currentThought != null && !e.currentThought.isEmpty()) {
+                // Check if this entity already has a thought in the global list to avoid overlaps
+                boolean alreadyShown = false;
+                for (Thought t : thoughts) {
+                    if (t.owner == e) { alreadyShown = true; break; }
+                }
+                if (!alreadyShown) {
+                    drawThoughtBubble(e.currentThought, e, e.x, e.y + (e.isWolf ? 1.5f : 3.0f), e.z, e.thoughtTimer, true);
+                }
+            }
+        }
+    }
 
-                // Bubble popup background
-                drawRectangleRounded(new Rectangle().x(screenPos.x() - textW/2.0f - 10).y(screenPos.y() - 60).width(textW + 20).height(45), 0.4f, 8, bubbleColor);
-                drawRectangleRoundedLines(new Rectangle().x(screenPos.x() - textW/2.0f - 10).y(screenPos.y() - 60).width(textW + 20).height(45), 0.4f, 8, fade(RAYWHITE, 0.3f * alpha));
-                
-                // Triangle pointer
-                drawTriangle(new Vector2().x(screenPos.x()).y(screenPos.y() - 15),
-                             new Vector2().x(screenPos.x() - 10).y(screenPos.y() - 25),
-                             new Vector2().x(screenPos.x() + 10).y(screenPos.y() - 25), bubbleColor);
+    private void drawThoughtBubble(String content, HumanEntity owner, float x, float y, float z, float timer, boolean isThought) {
+        Vector3 worldPos = (owner != null) ? new Vector3().x(owner.x).y(owner.y + (owner.isWolf ? 1.5f : 3.0f)).z(owner.z) 
+                                           : new Vector3().x(x).y(y).z(z);
+        Vector2 screenPos = getWorldToScreen(worldPos, camera);
+        
+        if (screenPos.x() > 0 && screenPos.x() < getScreenWidth() && screenPos.y() > 0 && screenPos.y() < getScreenHeight()) {
+            boolean isJettra = owner != null && owner.name.contains("Jettra");
+            String label = isThought ? "[Pensando...]" : "[Hablando]";
+            int fontSize = isJettra ? 18 : 16;
+            int textW = measureText(content, fontSize);
+            
+            float alpha = Math.min(1.0f, timer); // Fade out
+            Color bubbleColor = isJettra ? fade(GOLD, 0.8f * alpha) : (isThought ? fade(PURPLE, 0.7f * alpha) : fade(DARKBLUE, 0.8f * alpha));
+            Color textColor = isJettra ? fade(BLACK, alpha) : fade(RAYWHITE, alpha);
+            Color labelColor = isJettra ? fade(MAROON, alpha) : fade(GOLD, alpha);
+            Color borderColor = isJettra ? fade(WHITE, 0.9f * alpha) : fade(RAYWHITE, 0.3f * alpha);
 
-                drawText(label, (int)(screenPos.x() - textW/2.0f), (int)screenPos.y() - 55, 10, labelColor);
-                drawText(t.content, (int)(screenPos.x() - textW/2.0f), (int)screenPos.y() - 40, fontSize, textColor);
+            // Bubble popup background
+            drawRectangleRounded(new Rectangle().x(screenPos.x() - textW/2.0f - 10).y(screenPos.y() - 60).width(textW + 20).height(45), 0.4f, 8, bubbleColor);
+            drawRectangleRoundedLines(new Rectangle().x(screenPos.x() - textW/2.0f - 10).y(screenPos.y() - 60).width(textW + 20).height(45), 0.4f, 8, borderColor);
+            
+            // Triangle pointer
+            drawTriangle(new Vector2().x(screenPos.x()).y(screenPos.y() - 15),
+                         new Vector2().x(screenPos.x() - 10).y(screenPos.y() - 25),
+                         new Vector2().x(screenPos.x() + 10).y(screenPos.y() - 25), bubbleColor);
+
+            drawText(label, (int)(screenPos.x() - textW/2.0f), (int)screenPos.y() - 55, 10, labelColor);
+            drawText(content, (int)(screenPos.x() - textW/2.0f), (int)screenPos.y() - 40, fontSize, textColor);
+            if (owner != null && owner.currentGoal != null) {
+                drawText("Meta: " + owner.currentGoal, (int)(screenPos.x() - textW/2.0f), (int)screenPos.y() - 28, 9, GOLD);
             }
         }
     }
@@ -554,12 +570,18 @@ public class Jettra3DApp {
         }
 
         if (guiButton(sw - 190, 120, 180, 30, "SAVE STATE", LIME)) {
-            // saveWorldState();
-            worldEvents.add(new WorldEvent("Estado guardado", worldTime, 0, 255, 0));
+            saveWorldState();
         }
 
         if (guiButton(sw - 190, 160, 180, 30, "CONFIGURACIÓN", BLUE)) {
             showConfigModal = !showConfigModal;
+            if (showConfigModal) {
+                initCamera();
+                followMode = false;
+                cameraLocked = true;
+            } else {
+                cameraLocked = false;
+            }
         }
 
         if (guiButton(sw - 190, 200, 180, 30, directorMode ? "DIRECTOR: ON" : "DIRECTOR: OFF", directorMode ? ORANGE : GRAY)) {
@@ -578,11 +600,15 @@ public class Jettra3DApp {
             cameraLocked = false;
         }
 
-        if (guiButton(sw - 190, 300, 85, 25, "ZOOM +", GRAY)) {
+        if (guiButton(sw - 190, 305, 180, 30, showChat ? "CERRAR CHAT" : "ABRIR CHAT", PURPLE)) {
+            showChat = !showChat;
+        }
+
+        if (guiButton(sw - 190, 345, 85, 25, "ZOOM +", GRAY)) {
             camera.fovy(Math.max(5, camera.fovy() - 5));
         }
 
-        if (guiButton(sw - 100, 300, 85, 25, "ZOOM -", GRAY)) {
+        if (guiButton(sw - 100, 345, 85, 25, "ZOOM -", GRAY)) {
             camera.fovy(Math.min(120, camera.fovy() + 5));
         }
 
@@ -606,9 +632,27 @@ public class Jettra3DApp {
         if (selectedAgentIndex != -1 && selectedAgentIndex < entities.size()) {
             HumanEntity e = entities.get(selectedAgentIndex);
             drawText("AGENT: " + e.name, sw - 190, infoY, 15, RAYWHITE);
-            drawText("ACTION: " + e.action, sw - 190, infoY + 20, 10, LIGHTGRAY);
-            drawText("ENERGY: " + (int)e.energy + "%", sw - 190, infoY + 35, 10, fade(GREEN, 0.8f));
-            drawText("INTEL: " + (int)e.intelligence, sw - 190, infoY + 50, 10, SKYBLUE);
+            drawText("GOAL: " + e.currentGoal, sw - 190, infoY + 20, 10, GOLD);
+            drawText("MOOD: " + (int)e.mood + "% (" + (e.mood > 50 ? "Feliz" : "Estresado") + ")", sw - 190, infoY + 35, 10, fade(PURPLE, 0.8f));
+            drawText("HEALTH: " + (int)e.health + "%", sw - 190, infoY + 50, 10, fade(RED, 0.8f));
+            drawText("HUNGER: " + (int)e.hunger + "%", sw - 190, infoY + 65, 10, fade(ORANGE, 0.8f));
+            drawText("THIRST: " + (int)e.thirst + "%", sw - 190, infoY + 80, 10, fade(SKYBLUE, 0.8f));
+            
+            // Personality (Big Five)
+            int py = infoY + 105;
+            drawText("PERSONALIDAD:", sw - 190, py, 11, SKYBLUE);
+            drawText("- Openness: " + String.format("%.2f", e.openness), sw - 180, py + 15, 9, RAYWHITE);
+            drawText("- Conscien: " + String.format("%.2f", e.conscientiousness), sw - 180, py + 27, 9, RAYWHITE);
+            drawText("- Extraver: " + String.format("%.2f", e.extraversion), sw - 180, py + 39, 9, RAYWHITE);
+            drawText("- Agreeabl: " + String.format("%.2f", e.agreeableness), sw - 180, py + 51, 9, RAYWHITE);
+            drawText("- Neurotic: " + String.format("%.2f", e.neuroticism), sw - 180, py + 63, 9, RAYWHITE);
+
+            if (!e.spouse.isEmpty()) {
+                drawText("SPOUSE: " + e.spouse, sw - 190, py + 80, 10, PINK);
+            }
+            if (e.infectionLevel > 0) {
+                drawText("INFECTION: " + (int)e.infectionLevel + "%", sw - 190, py + 95, 10, LIME);
+            }
         }
 
         // Live Feed
@@ -659,8 +703,8 @@ public class Jettra3DApp {
     }
 
     private void drawHelpOverlay() {
-        drawRectangle(10, 10, 260, 180, fade(BLACK, 0.6f));
-        drawRectangleLines(10, 10, 260, 180, fade(GOLD, 0.5f));
+        drawRectangle(10, 10, 260, 200, fade(BLACK, 0.6f));
+        drawRectangleLines(10, 10, 260, 200, fade(GOLD, 0.5f));
         drawText("CONTROLES DE CÁMARA", 20, 20, 12, GOLD);
         drawText("- Teclas: W,S,A,D,Q,E", 25, 40, 10, RAYWHITE);
         drawText("- Mouse: Click Derecho Girar", 25, 55, 10, RAYWHITE);
@@ -670,6 +714,7 @@ public class Jettra3DApp {
         drawText("- L: Lock/Unlock Plano", 25, 115, 10, RAYWHITE);
         drawText("- Esc: Cerrar App", 25, 130, 10, RAYWHITE);
         drawText("- Tab: Toggle esta Ayuda", 25, 145, 10, RAYWHITE);
+        drawText("- Enter: Abrir/Cerrar Chat", 25, 160, 10, LIME);
     }
 
     private void drawConfigModal() {
@@ -703,10 +748,17 @@ public class Jettra3DApp {
         drawText(text, x + 30, y + 5, 12, RAYWHITE);
         return value;
     }
-
+    
     private void initPopulation() {
+        if (loadWorldState()) {
+            worldEvents.add(new WorldEvent("Sistema Restaurado desde /memory/world/", worldTime, 0, 255, 100));
+            return;
+        }
+
         // Create initial agents
-        generateEntity("Jettra Wolf", 0, 0, 0, true, false, false); // El lobo Jettra como líder
+        if (entities.stream().noneMatch(e -> "Jettra Wolf".equals(e.name))) {
+            generateEntity("Jettra Wolf", 0, 0, 0, true, false, false); // El lobo Jettra como líder
+        }
         generateEntity("Wolf-Prime", 10, 0, 10, true, false, false);
         generateEntity("Human-Alpha", 15, 0, 0, false, false, false);
         generateEntity("Civic-01", -15, 0, -15, false, false, true);
@@ -715,6 +767,36 @@ public class Jettra3DApp {
             generateEntity("Agent-" + (10 + i), (float)(Math.random()*60-30), 0, (float)(Math.random()*60-30), false, false, false);
         }
         worldEvents.add(new WorldEvent("Sistema Iniciado. Población generada.", worldTime, 200, 200, 255));
+    }
+
+    private boolean loadWorldState() {
+        try {
+            java.io.File file = new java.io.File("memory/world/world_state.json");
+            if (file.exists()) {
+                WorldState state = mapper.readValue(file, WorldState.class);
+                entities.clear();
+                entities.addAll(state.entities);
+                artifacts.clear();
+                artifacts.addAll(state.artifacts);
+                megaProjects.clear();
+                megaProjects.addAll(state.megaProjects);
+                worldTime = state.worldTime;
+                return true;
+            }
+        } catch (Exception ex) {
+            System.err.println("Error loading world state: " + ex.getMessage());
+        }
+        return false;
+    }
+
+    private void drawKnowledgeBase() {
+        for (KnowledgeEntry k : allKnowledge) {
+            Vector3 pos = new Vector3().x(k.x).y(k.y + 0.5f).z(k.z);
+            // Floating glowing sphere for knowledge
+            float pulse = (float)Math.sin(worldTime * 2.0f) * 0.1f;
+            drawSphere(pos, 0.2f + pulse, fade(GOLD, 0.6f));
+            drawSphereWires(pos, 0.25f + pulse, 8, 8, fade(SKYBLUE, 0.4f));
+        }
     }
 
     private void drawWolf(Vector3 pos, float rotDeg, Color color) {
@@ -778,7 +860,7 @@ public class Jettra3DApp {
 
     private void saveKnowledge(HumanEntity agent, String source, String topic) {
         try {
-            java.io.File dir = new java.io.File("memory/data");
+            java.io.File dir = new java.io.File("memory/world");
             if (!dir.exists()) dir.mkdirs();
             
             KnowledgeEntry entry = new KnowledgeEntry();
@@ -791,7 +873,7 @@ public class Jettra3DApp {
             entry.context = agent.action;
             entry.keywords = new String[]{topic.toLowerCase().replace(" ", "-"), "jettra-learning", source.toLowerCase()};
 
-            java.io.File file = new java.io.File("memory/data/knowledge.json");
+            java.io.File file = new java.io.File("memory/world/knowledge.json");
             java.util.List<KnowledgeEntry> list;
             if (file.exists()) {
                 list = mapper.readValue(file, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<KnowledgeEntry>>() {});
@@ -816,6 +898,8 @@ public class Jettra3DApp {
                 list.add(entry);
             }
             // ------------------------------
+            allKnowledge = list;
+            updateTopKnowledge();
 
             mapper.writerWithDefaultPrettyPrinter().writeValue(file, list);
 
@@ -825,14 +909,19 @@ public class Jettra3DApp {
     }
 
     private void updateTopKnowledge() {
-        try {
-            java.io.File file = new java.io.File("memory/data/knowledge.json");
+        if (allKnowledge == null || allKnowledge.isEmpty()) {
+            java.io.File file = new java.io.File("memory/world/knowledge.json");
             if (file.exists()) {
-                List<KnowledgeEntry> all = mapper.readValue(file, new com.fasterxml.jackson.core.type.TypeReference<List<KnowledgeEntry>>() {});
-                all.sort((a, b) -> Double.compare(b.confidence, a.confidence));
-                topKnowledge = all.stream().limit(5).collect(java.util.stream.Collectors.toList());
+                try {
+                    allKnowledge = mapper.readValue(file, new com.fasterxml.jackson.core.type.TypeReference<List<KnowledgeEntry>>() {});
+                } catch (Exception e) {}
             }
-        } catch (Exception e) {}
+        }
+        
+        if (allKnowledge != null) {
+            allKnowledge.sort((a, b) -> Double.compare(b.confidence, a.confidence));
+            topKnowledge = allKnowledge.stream().limit(5).collect(java.util.stream.Collectors.toList());
+        }
     }
 
     private void drawTopKnowledgePanel() {
@@ -875,9 +964,31 @@ public class Jettra3DApp {
         for (HumanEntity e : entities) {
             if (e.name.contains("Jettra")) {
                 String res = "Soy el Lobo Jettra. Tu mensaje ha sido recibido.";
-                if (msg.toLowerCase().contains("hola")) res = "Saludos, mortal. El conocimiento fluye.";
-                if (msg.toLowerCase().contains("construye")) res = "¡Mis agentes ya están en ello!";
-                if (msg.toLowerCase().contains("quien eres")) res = "Soy el guía de este mundo 3D.";
+                String lowerMsg = msg.toLowerCase();
+                
+                if (lowerMsg.contains("hola")) res = "Saludos, mortal. El conocimiento fluye.";
+                if (lowerMsg.contains("construye")) res = "¡Mis agentes ya están en ello!";
+                if (lowerMsg.contains("quien eres")) res = "Soy el guía de este mundo 3D.";
+
+                // Knowledge Search
+                if (res.startsWith("Soy el Lobo Jettra")) {
+                    try {
+                        java.io.File file = new java.io.File("memory/world/knowledge.json");
+                        if (file.exists()) {
+                            List<KnowledgeEntry> all = mapper.readValue(file, new com.fasterxml.jackson.core.type.TypeReference<List<KnowledgeEntry>>() {});
+                            for (KnowledgeEntry k : all) {
+                                if (lowerMsg.contains(k.topic.toLowerCase()) || 
+                                   (k.keywords != null && java.util.Arrays.stream(k.keywords).anyMatch(lowerMsg::contains))) {
+                                    res = "Mis agentes han aprendido sobre " + k.topic + " desde " + k.source + ".";
+                                    break;
+                                }
+                            }
+                            if (res.startsWith("Soy el Lobo Jettra") && (lowerMsg.contains("aprendido") || lowerMsg.contains("sabes"))) {
+                                res = "Estamos aprendiendo muchas cosas: ciencia, redes neuronales y arquitectura.";
+                            }
+                        }
+                    } catch (Exception ex) {}
+                }
 
                 // Physical Commands
                 if (msg.toLowerCase().contains("teletransportar")) {
@@ -912,15 +1023,22 @@ public class Jettra3DApp {
                     res = "Cambiando entorno a modo " + m[weatherMode] + ".";
                     worldEvents.add(new WorldEvent("Cambio climático: " + res, worldTime, 200, 0, 255));
                 }
+                if (msg.toLowerCase().contains("estado") || msg.toLowerCase().contains("reporte")) {
+                    int vivos = 0; int muertos = 0;
+                    for (HumanEntity a : entities) {
+                        if (a.isDead) muertos++; else vivos++;
+                    }
+                    res = "Estado: " + vivos + " vivos, " + muertos + " fallecidos. " + megaProjects.size() + " proyectos.";
+                }
                 
                 final String finalRes = res;
                 chatHistory.add("Jettra: " + finalRes);
                 e.currentThought = finalRes;
                 e.thoughtTimer = 5.0f;
-                thoughts.add(new Thought() {{
-                    content = finalRes; x = e.x; y = e.y + 3.5f; z = e.z;
-                    timer = 5.0f; isThought = false;
-                }});
+                Thought t = new Thought();
+                t.content = finalRes; t.owner = e; t.x = e.x; t.y = e.y + 3.5f; t.z = e.z;
+                t.timer = 5.0f; t.isThought = false;
+                thoughts.add(t);
                 break;
             }
         }
@@ -936,6 +1054,63 @@ public class Jettra3DApp {
     private void updateSfx() {
         if (!sfxEnabled) return;
         // In reality, this would play/stop a loop based on weatherMode.
+    }
+
+    private static class WorldState {
+        public List<HumanEntity> entities;
+        public List<Artifact> artifacts;
+        public List<MegaProject> megaProjects;
+        public float worldTime;
+    }
+
+    private void saveWorldState() {
+        try {
+            java.io.File dir = new java.io.File("memory/world");
+            if (!dir.exists()) dir.mkdirs();
+
+            WorldState state = new WorldState();
+            state.entities = new java.util.ArrayList<>(entities);
+            state.artifacts = new java.util.ArrayList<>(artifacts);
+            state.megaProjects = new java.util.ArrayList<>(megaProjects);
+            state.worldTime = worldTime;
+
+            java.io.File file = new java.io.File("memory/world/world_state.json");
+            mapper.writerWithDefaultPrettyPrinter().writeValue(file, state);
+            worldEvents.add(new WorldEvent("Mundo guardado automáticamente", worldTime, 0, 255, 100));
+        } catch (Exception ex) {
+            System.err.println("Error saving world state: " + ex.getMessage());
+            worldEvents.add(new WorldEvent("Error guardando mundo", worldTime, 255, 0, 0));
+        }
+    }
+
+    private void drawJettraStatusTooltip() {
+        HumanEntity jettra = null;
+        for (HumanEntity e : entities) {
+            if (e.name.contains("Jettra")) { jettra = e; break; }
+        }
+        if (jettra == null) return;
+
+        int x = 10;
+        int y = 200;
+        int w = 280;
+        int h = 100;
+
+        drawRectangleRounded(new Rectangle().x(x).y(y).width(w).height(h), 0.2f, 8, fade(DARKGRAY, 0.9f));
+        drawRectangleRoundedLines(new Rectangle().x(x).y(y).width(w).height(h), 0.2f, 8, GOLD);
+        
+        drawText("VOZ DEL LÍDER: " + jettra.name.toUpperCase(), x + 10, y + 10, 12, GOLD);
+        drawText("ACCIÓN: " + jettra.action, x + 10, y + 30, 10, RAYWHITE);
+        drawText("Población Total: " + entities.size(), x + 10, y + 45, 10, SKYBLUE);
+        drawText("Proyectos Activos: " + megaProjects.size(), x + 140, y + 45, 10, SKYBLUE);
+        
+        if (jettra.currentThought != null && jettra.thoughtTimer > 0) {
+            String thought = jettra.currentThought;
+            int maxChars = 40;
+            if (thought.length() > maxChars) thought = thought.substring(0, maxChars-3) + "...";
+            drawText("PENSANDO: " + thought, x + 10, y + 70, 11, LIME);
+        } else {
+            drawText("PENSANDO: Vigilando el conocimiento...", x + 10, y + 70, 11, GRAY);
+        }
     }
 
     public static void main(String[] args) {
