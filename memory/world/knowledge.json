@@ -1,13 +1,13 @@
 [ {
-  "timestamp" : 1773947252498,
+  "timestamp" : 1773951001231,
   "agent" : "Jettra Wolf",
   "source" : "Observación Directa",
   "topic" : "Evolución de la Especie",
-  "x" : 9.427124,
+  "x" : 13.0319805,
   "y" : 0.0,
-  "z" : -29.148663,
-  "confidence" : 0.9966200844599674,
-  "context" : "CREATING",
+  "z" : 33.701355,
+  "confidence" : 0.9982872879684905,
+  "context" : "BUILDING",
   "keywords" : [ "evolución-de-la-especie", "jettra-learning", "observación directa" ]
 }, {
   "timestamp" : 1773939269303,

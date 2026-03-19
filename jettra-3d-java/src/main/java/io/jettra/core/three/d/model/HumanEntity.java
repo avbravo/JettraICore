@@ -25,6 +25,7 @@ public class HumanEntity {
     public boolean isWolf;
     public boolean isAnimal;
     public boolean isCar;
+    public boolean isMachine;
     public int entityType;
     public String dream;
     public String job;
