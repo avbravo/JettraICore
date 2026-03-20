@@ -8,6 +8,7 @@ import com.raylib.Vector3;
 import com.raylib.Vector2;
 import com.raylib.Rectangle;
 import com.raylib.Camera3D;
+import com.raylib.Font;
 
 import io.jettra.core.three.d.model.Artifact;
 import io.jettra.core.three.d.model.HumanEntity;
@@ -27,6 +28,7 @@ public class Jettra3DApp {
     private static final int SCREEN_WIDTH = 1280;
     private static final int SCREEN_HEIGHT = 720;
 
+    private Font mainFont;
     private Camera3D camera;
     private List<Artifact> artifacts = new CopyOnWriteArrayList<>();
     private List<HumanEntity> entities = new CopyOnWriteArrayList<>();
@@ -77,6 +79,11 @@ public class Jettra3DApp {
 
         initAudioDevice();
         initSfx();
+
+        mainFont = loadFont("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf");
+        if (mainFont != null) {
+            setTextureFilter(mainFont.texture(), 1); // 1 = FILTER_TRILINEAR
+        }
 
         initCamera();
         initPopulation();
@@ -556,9 +563,7 @@ public class Jettra3DApp {
         clearBackground(skyColor);
 
         beginMode3D(camera);
-        drawGrid((int)(50 * planeScale), 1.0f);
-        drawPlane(new Vector3().x(0).y(-0.05f).z(0), new Vector2().x(100 * planeScale).y(100 * planeScale), 
-                  weatherMode == 2 ? DARKGRAY : new Color().r((byte)15).g((byte)15).b((byte)30).a((byte)255));
+        drawCartesianPlane();
 
         drawArtifacts();
         drawEntities();
@@ -692,7 +697,7 @@ public class Jettra3DApp {
 
             // Name Tag
             Vector2 screenPos = getWorldToScreen(new Vector3().x(pos.x()).y(pos.y() + 2.5f).z(pos.z()), camera);
-            drawText(e.name, (int)screenPos.x() - measureText(e.name, 10)/2, (int)screenPos.y(), 10, RAYWHITE);
+            drawLegibleText(e.name, (int)screenPos.x() - measureLegibleText(e.name, 12)/2, (int)screenPos.y(), 12, RAYWHITE);
             i++;
         }
     }
@@ -744,11 +749,45 @@ public class Jettra3DApp {
                          new Vector2().x(screenPos.x() - 10).y(screenPos.y() - 25),
                          new Vector2().x(screenPos.x() + 10).y(screenPos.y() - 25), bubbleColor);
 
-            drawText(label, (int)(screenPos.x() - textW/2.0f), (int)screenPos.y() - 55, 10, labelColor);
-            drawText(content, (int)(screenPos.x() - textW/2.0f), (int)screenPos.y() - 40, fontSize, textColor);
+            drawLegibleText(label, (int)(screenPos.x() - textW/2.0f), (int)screenPos.y() - 55, 12, labelColor);
+            drawLegibleText(content, (int)(screenPos.x() - textW/2.0f), (int)screenPos.y() - 40, fontSize, textColor);
             if (owner != null && owner.currentGoal != null) {
-                drawText("Meta: " + owner.currentGoal, (int)(screenPos.x() - textW/2.0f), (int)screenPos.y() - 28, 9, GOLD);
+                drawLegibleText("Meta: " + owner.currentGoal, (int)(screenPos.x() - textW/2.0f), (int)screenPos.y() - 28, 10, GOLD);
             }
+        }
+    }
+
+    private void drawCartesianPlane() {
+        // Ground Plane
+        Color floorColor = (weatherMode == 2) ? DARKGRAY : new Color().r((byte)25).g((byte)25).b((byte)45).a((byte)255);
+        drawPlane(new Vector3().x(0).y(-0.05f).z(0), new Vector2().x(200).y(200), floorColor);
+        
+        // Extend Grid
+        drawGrid(100, 1.0f);
+        
+        // Standard Cartesian Axes (Red X, Green Y, Blue Z)
+        drawLine3D(new Vector3().x(-100).y(0.01f).z(0), new Vector3().x(100).y(0.01f).z(0), RED);   // X Axis
+        drawLine3D(new Vector3().x(0).y(-100).z(0), new Vector3().x(0).y(100).z(0), GREEN);    // Y Axis
+        drawLine3D(new Vector3().x(0).y(0.01f).z(-100), new Vector3().x(0).y(0.01f).z(100), BLUE); // Z Axis
+        
+        // Origin Marker
+        drawSphere(new Vector3().x(0).y(0).z(0), 0.25f, GOLD);
+    }
+
+    private void drawLegibleText(String text, int x, int y, int fontSize, Color color) {
+        if (mainFont != null) {
+            drawTextEx(mainFont, text, new Vector2().x(x).y(y), (float)fontSize, 1.0f, color);
+        } else {
+            drawText(text, x, y, fontSize, color);
+        }
+    }
+
+    private int measureLegibleText(String text, int fontSize) {
+        if (mainFont != null) {
+            Vector2 size = measureTextEx(mainFont, text, (float)fontSize, 1.0f);
+            return (int)size.x();
+        } else {
+            return measureText(text, fontSize);
         }
     }
 
@@ -833,90 +872,92 @@ public class Jettra3DApp {
         int infoY = 410;
         if (selectedAgentIndex != -1 && selectedAgentIndex < entities.size()) {
             HumanEntity e = entities.get(selectedAgentIndex);
-            drawText("AGENT: " + e.name, sw - 190, infoY, 15, RAYWHITE);
-            drawText("GOAL: " + e.currentGoal, sw - 190, infoY + 20, 10, GOLD);
-            drawText("MOOD: " + (int)e.mood + "% (" + (e.mood > 50 ? "Feliz" : "Estresado") + ")", sw - 190, infoY + 35, 10, fade(PURPLE, 0.8f));
-            drawText("HEALTH: " + (int)e.health + "%", sw - 190, infoY + 50, 10, fade(RED, 0.8f));
-            drawText("HUNGER: " + (int)e.hunger + "%", sw - 190, infoY + 65, 10, fade(ORANGE, 0.8f));
-            drawText("THIRST: " + (int)e.thirst + "%", sw - 190, infoY + 80, 10, fade(SKYBLUE, 0.8f));
+            drawLegibleText("AGENT: " + e.name, sw - 190, infoY, 15, RAYWHITE);
+            drawLegibleText("GOAL: " + e.currentGoal, sw - 190, infoY + 20, 11, GOLD);
+            drawLegibleText("MOOD: " + (int)e.mood + "% (" + (e.mood > 50 ? "Feliz" : "Estresado") + ")", sw - 190, infoY + 35, 11, fade(PURPLE, 0.8f));
+            drawLegibleText("HEALTH: " + (int)e.health + "%", sw - 190, infoY + 50, 11, fade(RED, 0.8f));
+            drawLegibleText("HUNGER: " + (int)e.hunger + "%", sw - 190, infoY + 65, 11, fade(ORANGE, 0.8f));
+            drawLegibleText("THIRST: " + (int)e.thirst + "%", sw - 190, infoY + 80, 11, fade(SKYBLUE, 0.8f));
             
             // Personality (Big Five)
             int py = infoY + 105;
-            drawText("PERSONALIDAD:", sw - 190, py, 11, SKYBLUE);
-            drawText("- Openness: " + String.format("%.2f", e.openness), sw - 180, py + 15, 9, RAYWHITE);
-            drawText("- Conscien: " + String.format("%.2f", e.conscientiousness), sw - 180, py + 27, 9, RAYWHITE);
-            drawText("- Extraver: " + String.format("%.2f", e.extraversion), sw - 180, py + 39, 9, RAYWHITE);
-            drawText("- Agreeabl: " + String.format("%.2f", e.agreeableness), sw - 180, py + 51, 9, RAYWHITE);
-            drawText("- Neurotic: " + String.format("%.2f", e.neuroticism), sw - 180, py + 63, 9, RAYWHITE);
+            drawLegibleText("PERSONALIDAD:", sw - 190, py, 12, SKYBLUE);
+            drawLegibleText("- Openness: " + String.format("%.2f", e.openness), sw - 180, py + 15, 10, RAYWHITE);
+            drawLegibleText("- Conscien: " + String.format("%.2f", e.conscientiousness), sw - 180, py + 27, 10, RAYWHITE);
+            drawLegibleText("- Extraver: " + String.format("%.2f", e.extraversion), sw - 180, py + 39, 10, RAYWHITE);
+            drawLegibleText("- Agreeabl: " + String.format("%.2f", e.agreeableness), sw - 180, py + 51, 10, RAYWHITE);
+            drawLegibleText("- Neurotic: " + String.format("%.2f", e.neuroticism), sw - 180, py + 63, 10, RAYWHITE);
 
             if (!e.spouse.isEmpty()) {
-                drawText("SPOUSE: " + e.spouse, sw - 190, py + 80, 10, PINK);
+                drawLegibleText("SPOUSE: " + e.spouse, sw - 190, py + 80, 11, PINK);
             }
             if (e.infectionLevel > 0) {
-                drawText("INFECTION: " + (int)e.infectionLevel + "%", sw - 190, py + 95, 10, LIME);
+                drawLegibleText("INFECTION: " + (int)e.infectionLevel + "%", sw - 190, py + 95, 11, LIME);
             }
         }
 
         // Live Feed
         drawLiveFeed(sw, sh);
         // History Log
-        drawHistoryLog(sw, sh);
+        drawEventLog();
     }
 
-    private boolean guiButton(int x, int y, int w, int h, String text, Color color) {
+    private boolean guiButton(int x, int y, int w, int h, String text, Color baseColor) {
         Vector2 mouse = getMousePosition();
-        boolean hover = checkCollisionPointRec(mouse, new Rectangle().x(x).y(y).width(w).height(h));
-        
-        drawRectangle(x, y, w, h, hover ? fade(color, 0.8f) : fade(color, 0.5f));
-        drawRectangleLines(x, y, w, h, RAYWHITE);
-        
-        int fontSize = 15;
-        int tw = measureText(text, fontSize);
-        drawText(text, x + (w - tw)/2, y + (h - fontSize)/2, fontSize, RAYWHITE);
-        
-        return hover && isMouseButtonPressed(MOUSE_BUTTON_LEFT);
+        Rectangle rec = new Rectangle().x(x).y(y).width(w).height(h);
+        boolean hovered = checkCollisionPointRec(mouse, rec);
+        boolean clicked = hovered && isMouseButtonPressed(MOUSE_BUTTON_LEFT);
+
+        drawRectangleRounded(rec, 0.2f, 8, hovered ? fade(baseColor, 0.8f) : fade(baseColor, 0.6f));
+        drawRectangleRoundedLines(rec, 0.2f, 8, hovered ? WHITE : fade(WHITE, 0.4f));
+
+        int fontSize = 14;
+        int tw = measureLegibleText(text, fontSize);
+        drawLegibleText(text, x + (w - tw)/2, y + (h - fontSize)/2, fontSize, RAYWHITE);
+
+        return clicked;
     }
 
     private void drawLiveFeed(int sw, int sh) {
-        int fy = sh - 150;
-        drawRectangle(sw - 350, fy, 140, 140, fade(BLACK, 0.6f));
-        drawText("LIVE FEED", sw - 340, fy + 5, 12, GOLD);
-        int j = 0;
-        for (int i = worldEvents.size() - 1; i >= 0 && j < 8; i--, j++) {
-            WorldEvent ev = worldEvents.get(i);
-            drawText("> " + ev.message, sw - 340, fy + 25 + (j * 14), 10, new Color().r((byte)ev.r).g((byte)ev.g).b((byte)ev.b).a((byte)ev.a));
+        int fy = sh - 160;
+        drawRectangle(sw - 350, fy, 140, 100, fade(BLACK, 0.6f));
+        drawLegibleText("LIVE FEED", sw - 340, fy + 5, 13, GOLD);
+        
+        for (int j = 0; j < Math.min(5, worldEvents.size()); j++) {
+            WorldEvent ev = worldEvents.get(worldEvents.size() - 1 - j);
+            drawLegibleText("> " + ev.message, sw - 340, fy + 25 + (j * 14), 11, new Color().r((byte)ev.r).g((byte)ev.g).b((byte)ev.b).a((byte)ev.a));
         }
     }
 
-    private void drawHistoryLog(int sw, int sh) {
-        int w = 350; int h = 200;
-        int x = 10; int y = sh - h - 10;
-        drawRectangle(x, y, w, h, fade(BLACK, 0.5f));
-        drawRectangleLines(x, y, w, h, fade(SKYBLUE, 0.5f));
-        drawText("LOG DE EVENTOS DEL SISTEMA", x + 10, y + 10, 12, GOLD);
+    private void drawEventLog() {
+        int w = 600; int h = 300;
+        int x = 15;
+        int y = getScreenHeight() - h - 15;
+        drawRectangle(x, y, w, h, fade(BLACK, 0.85f));
+        drawRectangleLines(x, y, w, h, GOLD);
+        drawLegibleText("LOG DE EVENTOS DEL SISTEMA", x + 10, y + 10, 14, GOLD);
         
-        int j = 0;
-        int maxLines = 12;
-        for (int i = worldEvents.size() - 1; i >= 0 && j < maxLines; i--, j++) {
-            WorldEvent ev = worldEvents.get(i);
-            String timeStr = String.format("%.1fs", ev.timestamp);
-            drawText("[" + timeStr + "] " + ev.message, x + 15, y + 30 + (j * 14), 10, new Color().r((byte)ev.r).g((byte)ev.g).b((byte)ev.b).a((byte)ev.a));
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("HH:mm:ss");
+        for (int j = 0; j < Math.min(15, worldEvents.size()); j++) {
+            WorldEvent ev = worldEvents.get(worldEvents.size() - 1 - j);
+            String timeStr = sdf.format(new java.util.Date((long)(ev.timestamp * 1000)));
+            drawLegibleText("[" + timeStr + "] " + ev.message, x + 15, y + 30 + (j * 16), 11, new Color().r((byte)ev.r).g((byte)ev.g).b((byte)ev.b).a((byte)ev.a));
         }
     }
 
     private void drawHelpOverlay() {
-        drawRectangle(10, 10, 260, 200, fade(BLACK, 0.6f));
-        drawRectangleLines(10, 10, 260, 200, fade(GOLD, 0.5f));
-        drawText("CONTROLES DE CÁMARA", 20, 20, 12, GOLD);
-        drawText("- Teclas: W,S,A,D,Q,E", 25, 40, 10, RAYWHITE);
-        drawText("- Mouse: Click Derecho Girar", 25, 55, 10, RAYWHITE);
-        drawText("- Rueda Mouse: Zoom +/-", 25, 70, 10, RAYWHITE);
-        drawText("- C: Cambiar Cámara / Reset", 25, 85, 10, RAYWHITE);
-        drawText("- F: Modo Seguir Agente", 25, 100, 10, RAYWHITE);
-        drawText("- L: Lock/Unlock Plano", 25, 115, 10, RAYWHITE);
-        drawText("- Esc: Cerrar App", 25, 130, 10, RAYWHITE);
-        drawText("- Tab: Toggle esta Ayuda", 25, 145, 10, RAYWHITE);
-        drawText("- Enter: Abrir/Cerrar Chat", 25, 160, 10, LIME);
+        drawRectangle(15, 15, 230, 180, fade(BLACK, 0.7f));
+        drawRectangleLines(15, 15, 230, 180, GOLD);
+        drawLegibleText("CONTROLES DE CÁMARA", 20, 20, 14, GOLD);
+        drawLegibleText("- Teclas: W,S,A,D,Q,E", 25, 45, 12, RAYWHITE);
+        drawLegibleText("- Mouse: Click Derecho Girar", 25, 60, 12, RAYWHITE);
+        drawLegibleText("- Rueda Mouse: Zoom +/-", 25, 75, 12, RAYWHITE);
+        drawLegibleText("- C: Cambiar Cámara / Reset", 25, 90, 12, RAYWHITE);
+        drawLegibleText("- F: Modo Seguir Agente", 25, 105, 12, RAYWHITE);
+        drawLegibleText("- L: Lock/Unlock Plano", 25, 120, 12, RAYWHITE);
+        drawLegibleText("- Esc: Cerrar App", 25, 135, 12, RAYWHITE);
+        drawLegibleText("- Tab: Toggle esta Ayuda", 25, 150, 12, RAYWHITE);
+        drawLegibleText("- Enter: Abrir/Cerrar Chat", 25, 165, 12, LIME);
     }
 
     private void drawConfigModal() {
