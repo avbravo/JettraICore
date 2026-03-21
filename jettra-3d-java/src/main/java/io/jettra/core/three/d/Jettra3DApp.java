@@ -429,9 +429,11 @@ public class Jettra3DApp {
                 e.rotation = (float)Math.atan2(dx, dz) * (180.0f / (float)Math.PI);
                 
                 // Autonomous Driving Activation
-                if (dist > 30.0f && !e.isCar && !e.name.contains("Jettra") && e.energy > 20) {
+                if (dist > 80.0f && !e.isCar && !e.name.contains("Jettra") && e.energy > 20 && Math.random() < 0.05) {
                     e.isCar = true; e.action = "DRIVING";
                     if (Math.random() < 0.5) { e.r=255; e.g=50; e.b=50; } else { e.r=50; e.g=50; e.b=255; }
+                } else if (!e.isCar && !e.isMachine && !e.name.contains("Jettra")) {
+                    e.action = "WALKING";
                 }
                 // Road Laying
                 if (e.isCar && Math.random() < 0.05) {
@@ -442,7 +444,10 @@ public class Jettra3DApp {
                 }
             } else if (!Float.isNaN(dist)) {
                 if (e.isCar) { e.isCar = false; e.r = 200; e.g = 200; e.b = 200; }
-                if (!e.currentGoal.startsWith("BUILDING_")) e.isMachine = false;
+                if (!e.currentGoal.startsWith("BUILDING_")) {
+                    e.isMachine = false;
+                    e.action = "IDLE";
+                }
                 
                 // Goal-specific target selection
                 if (e.currentGoal.startsWith("BUILDING_")) {
@@ -650,7 +655,7 @@ public class Jettra3DApp {
                 e.x = 0; e.y = 0; e.z = 0;
             }
             Vector3 pos = new Vector3().x(e.x).y(e.y).z(e.z);
-            Color color = new Color().r((byte)e.r).g((byte)e.g).b((byte)e.b).a((byte)e.a);
+            Color color = new Color().r((byte)e.r).g((byte)e.g).b((byte)e.b).a((byte)255);
 
             if (e.isWolf) {
                 drawWolf(pos, e.rotation, color);
@@ -995,6 +1000,17 @@ public class Jettra3DApp {
     private void initPopulation() {
         if (loadWorldState()) {
             worldEvents.add(new WorldEvent("Sistema Restaurado desde /memory/world/", worldTime, 0, 255, 100));
+            // Ensure Jettra Wolf and at least a few persons exist if the save was corrupted or everyone died
+            if (entities.stream().noneMatch(e -> e.name != null && e.name.contains("Jettra"))) {
+                generateEntity("Jettra Wolf", 0, 0, 0, true, false, false);
+            }
+            if (entities.size() < 2) {
+                generateEntity("Wolf-Prime", 10, 0, 10, true, false, false);
+                generateEntity("Human-Alpha", 15, 0, 0, false, false, false);
+                for (int i = 0; i < 4; i++) {
+                    generateEntity("Agent-R" + (10 + i), (float)(Math.random()*60-30), 0, (float)(Math.random()*60-30), false, false, false);
+                }
+            }
             return;
         }
 

@@ -13,3 +13,5 @@
 - [x] Los agentes piensan y actuan como personas, tienenn sentimientos, familias, para ello estudia todo sobre los humanos, comportamientos, salud, psicologia, metabolimos y ellos actuan de esa manera. Tambien coloca un tooltip cerca de cada agente que esta hablando o pensando .
 
 - [x]Lee los archivos pdf analñiza su contenido guarda el aprendizaje y con esta inforamcion tambien la puedes usar para responder preguntas del chat y tambien aplicar el conocimiento en los agentes y objetos
+
+- [] Añade soporte para modelos 3d de los agentes y objetos creados con Blender.

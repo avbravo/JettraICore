@@ -1,0 +1,12 @@
+[ {
+  "timestamp" : 1774057010405,
+  "agent" : "Agent-10",
+  "source" : "Observación Directa",
+  "topic" : "Evolución de la Especie",
+  "x" : -2.2272916,
+  "y" : 0.0,
+  "z" : -11.576088,
+  "confidence" : 0.9926464870684294,
+  "context" : "BUILDING",
+  "keywords" : [ "evolución-de-la-especie", "jettra-learning", "observación directa" ]
+} ]
