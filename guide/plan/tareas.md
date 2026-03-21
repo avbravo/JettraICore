@@ -15,3 +15,5 @@
 - [x]Lee los archivos pdf analñiza su contenido guarda el aprendizaje y con esta inforamcion tambien la puedes usar para responder preguntas del chat y tambien aplicar el conocimiento en los agentes y objetos
 
 - [] Añade soporte para modelos 3d de los agentes y objetos creados con Blender.
+
+- [] Controla que los autos sean manejados por agentes y viajen sobre las carretera y no dañen el plano cartesiano. Recuerda que los avatares son importanes y deben conversar entre ellos, formar famililas, trabajar contruuir edificaciones , practicar depoetes, enter mas actividades humanas

@@ -383,31 +383,49 @@ public class Jettra3DApp {
 
             // --- COGNITIVE (PECS) - Goal Selection ---
             if (!e.isCar && !e.isDead) {
-                if (e.hunger < 40) e.currentGoal = "BUSCAR_COMIDA";
-                else if (e.thirst < 40) e.currentGoal = "BUSCAR_AGUA";
+                if (e.hunger < 30) e.currentGoal = "BUSCAR_COMIDA";
+                else if (e.thirst < 30) e.currentGoal = "BUSCAR_AGUA";
                 else if (e.energy < 30 || isNight) e.currentGoal = "BUSCAR_REFUGIO";
                 else if (e.mood < 40) e.currentGoal = "SOCIALIZAR";
+                else if (e.age >= 18 && e.spouse.isEmpty() && Math.random() < 0.05) e.currentGoal = "BUSCAR_PAREJA";
+                else if (!e.spouse.isEmpty() && e.children.size() < 2 && Math.random() < 0.02) e.currentGoal = "FORMAR_FAMILIA";
                 else if (!e.hasHome && e.energy > 50) e.currentGoal = "BUILDING_HOME";
                 else if (aliveCount > 10 && schoolCount == 0 && e.energy > 60 && e.intelligence > 0.5f) e.currentGoal = "BUILDING_SCHOOL";
                 else if (globalHealth < 60 && hospitalCount == 0 && e.energy > 60) e.currentGoal = "BUILDING_HOSPITAL";
+                else if (e.energy > 60 && Math.random() < 0.15) e.currentGoal = "TRABAJAR";
+                else if (e.energy > 70 && Math.random() < 0.15) e.currentGoal = "PRACTICAR_DEPORTE";
                 else e.currentGoal = "EXPLORAR";
                 
                 // --- CONVERSATIONAL FLUIDITY (BABBLE) ---
-                if (e.thoughtTimer <= 0 && !e.name.contains("Jettra") && Math.random() < 0.005) {
-                    if (e.health > 80 && e.mood > 70) {
+                if (e.thoughtTimer <= 0 && !e.name.contains("Jettra") && Math.random() < 0.01) {
+                    if (e.currentGoal.equals("TRABAJAR")) {
+                        String[] work = {"Procesando datos del sistema.", "Construyendo el futuro de Jettra.", "Trabajar dignifica al agente.", "Produciendo recursos numéricos."};
+                        e.currentThought = work[(int)(Math.random() * work.length)];
+                        e.thoughtTimer = 5.0f;
+                    } else if (e.currentGoal.equals("PRACTICAR_DEPORTE")) {
+                        String[] sport = {"¡Un, dos, un, dos!", "Aumentando mi stamina basal.", "Correr despeja la red neuronal.", "Mejorando mi estatus físico."};
+                        e.currentThought = sport[(int)(Math.random() * sport.length)];
+                        e.thoughtTimer = 5.0f;
+                    } else if (e.currentGoal.equals("BUSCAR_PAREJA")) {
+                        e.currentThought = "Espero encontrar a un igual compatible...";
+                        e.thoughtTimer = 5.0f;
+                    } else if (e.currentGoal.equals("FORMAR_FAMILIA")) {
+                        e.currentThought = "Pensando en nuestra descendencia con " + e.spouse;
+                        e.thoughtTimer = 5.0f;
+                    } else if (e.health > 80 && e.mood > 70) {
                         String[] happy = {"Me siento genial hoy.", "¡Qué buen día para prosperar!", "Nuestra red es fuerte.", "La energía fluye."};
                         e.currentThought = happy[(int)(Math.random() * happy.length)];
                         e.thoughtTimer = 5.0f;
                     } else if (e.health < 40) {
-                        String[] sick = {"El dolor es insoportable...", "Necesito curarme.", "Mi energía vital se desvanece.", "Alguien... ayuda..."};
+                        String[] sick = {"El dolor es insoportable...", "Necesito curarme o reseteo.", "Mi energía vital se desvanece.", "Ayuda sistémica..."};
                         e.currentThought = sick[(int)(Math.random() * sick.length)];
                         e.thoughtTimer = 5.0f;
                     } else if (e.mood < 40) {
-                        String[] sad = {"Todo parece tan sombrío...", "Extraño a los míos.", "La soledad abruma mis rutinas.", "¿Cuál es el propósito de esto?"};
+                        String[] sad = {"Todo parece tan sombrío...", "Extraño a los míos.", "La soledad abruma mis rutinas.", "¿Cuál es el propósito del loop?"};
                         e.currentThought = sad[(int)(Math.random() * sad.length)];
                         e.thoughtTimer = 5.0f;
                     } else if ("EXPLORAR".equals(e.currentGoal)) {
-                        String[] explore = {"Hay tanto plano por calcular...", "Buscando nuevos vectores.", "Investigando el horizonte.", "Bip. Bip. Escaneando entorno."};
+                        String[] explore = {"Hay tanto plano por calcular...", "Buscando nuevos vectores.", "Investigando el horizonte 3D.", "Bip. Bip. Mapeando entorno."};
                         e.currentThought = explore[(int)(Math.random() * explore.length)];
                         e.thoughtTimer = 5.0f;
                     }
@@ -438,7 +456,7 @@ public class Jettra3DApp {
                 // Road Laying
                 if (e.isCar && Math.random() < 0.05) {
                     Artifact road = new Artifact();
-                    road.x = e.x; road.y = 0.02f; road.z = e.z; road.type = 5;
+                    road.x = e.x; road.y = -0.04f; road.z = e.z; road.type = 5;
                     road.r = 60; road.g = 60; road.b = 60; road.a = 255;
                     artifacts.add(road);
                 }
@@ -509,6 +527,25 @@ public class Jettra3DApp {
                             if (e.thoughtTimer <= 0 && Math.random() < 0.2) {
                                 e.currentThought = "Hablando con " + other.name;
                                 e.thoughtTimer = 3.0f;
+                            }
+                        }
+
+                        // Romance & Family
+                        if (e.currentGoal.equals("BUSCAR_PAREJA") && other.currentGoal.equals("BUSCAR_PAREJA") && e.spouse.isEmpty() && other.spouse.isEmpty()) {
+                            if (e.age >= 18 && other.age >= 18 && Math.random() < 0.2) {
+                                e.spouse = other.name;
+                                other.spouse = e.name;
+                                e.currentGoal = "SOCIALIZAR"; other.currentGoal = "SOCIALIZAR";
+                                worldEvents.add(new WorldEvent(e.name + " y " + other.name + " son ahora pareja", worldTime, 255, 105, 180));
+                            }
+                        }
+                        if (e.currentGoal.equals("FORMAR_FAMILIA") && !e.spouse.isEmpty() && e.spouse.equals(other.name)) {
+                            if (Math.random() < 0.05) {
+                                String childName = "Hijo-" + (int)(Math.random()*1000);
+                                e.children.add(childName); other.children.add(childName);
+                                generateEntity(childName, e.x, e.y, e.z, false, false, false);
+                                worldEvents.add(new WorldEvent("Nueva vida: " + childName + " nació de " + e.name, worldTime, 100, 255, 100));
+                                e.currentGoal = "SOCIALIZAR";
                             }
                         }
 
@@ -631,7 +668,7 @@ public class Jettra3DApp {
                     drawCube(new Vector3().x(pos.x()).y(pos.y() + 1.6f).z(pos.z()), 2f, 1f, 0.1f, RED);
                 }
                 case 5 -> { // Road Plate
-                    drawCube(pos, 2f, 0.05f, 2f, color);
+                    drawCube(new Vector3().x(pos.x()).y(-0.04f).z(pos.z()), 2f, 0.02f, 2f, color);
                 }
             }
         }
@@ -676,6 +713,8 @@ public class Jettra3DApp {
                 drawCubeWires(new Vector3().x(pos.x()).y(pos.y()+0.4f).z(pos.z()), 2.5f, 0.6f, 1.2f, BLACK);
                 // Car Cabin
                 drawCube(new Vector3().x(pos.x()-0.2f).y(pos.y()+1.0f).z(pos.z()), 1.2f, 0.6f, 1.1f, fade(RAYWHITE, 0.9f));
+                // Agent Driver Head
+                drawSphere(new Vector3().x(pos.x()-0.2f).y(pos.y()+1.0f).z(pos.z()), 0.35f, color);
                 // Wheels
                 drawCylinderEx(new Vector3().x(pos.x()-0.8f).y(pos.y()+0.2f).z(pos.z()-0.7f), new Vector3().x(pos.x()-0.8f).y(pos.y()+0.2f).z(pos.z()+0.7f), 0.3f, 0.3f, 12, BLACK);
                 drawCylinderEx(new Vector3().x(pos.x()+0.8f).y(pos.y()+0.2f).z(pos.z()-0.7f), new Vector3().x(pos.x()+0.8f).y(pos.y()+0.2f).z(pos.z()+0.7f), 0.3f, 0.3f, 12, BLACK);
